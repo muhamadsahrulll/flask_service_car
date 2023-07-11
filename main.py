@@ -28,22 +28,7 @@ from models.experimental import attempt_load
 from utils.general import check_img_size, non_max_suppression
 
 
-# Yolov5 library
-# import cv2
-# from PIL import Image
-# import torch
-# import numpy as np
-# from pathlib import Path
-# from models.experimental import attempt_load
-# from utils.general import non_max_suppression, scale_boxes, check_img_size
-# from utils.plots import plot_one_box
-# from utils.torch_utils import select_device
 
-# import argparse
-# import platform
-# import sys
-# from pathlib import Path
-# import torch
 
 from models.common import DetectMultiBackend
 from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
@@ -56,8 +41,8 @@ app = Flask(__name__, template_folder='Templates')
 api = Api(app)
 CORS(app)
 port = int(os.environ.get("RAILWAY_PORT", 5000))
-#app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:@127.0.0.1:3306/kendaraan"
-app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:pBXnUE9KTMeiM5TGRp7q@containers-us-west-166.railway.app:8066/railway"
+app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:@127.0.0.1:3306/kendaraan"
+# app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:qBEtpDcwnoplHMkgZMbv@containers-us-west-46.railway.app:7986/railway"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'whateveryouwant'
 # mail env config
@@ -90,6 +75,14 @@ class Users(db.Model):
 #     tanggal = db.Column(db.Date)
 #     waktu = db.Column(db.Time)
 
+class Histori(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    nama = db.Column(db.String(30), nullable=False)
+    jenis_kendaraan = db.Column(db.String(30), nullable=False)
+    tanggal = db.Column(db.Date)
+
+    user = db.relationship('Users', backref=db.backref('histori', lazy=True))
 
 
 
@@ -98,30 +91,93 @@ class Users(db.Model):
 # https://www.youtube.com/watch?v=g_j6ILT-X0k
 # https://stackoverflow.com/questions/72547853/unable-to-send-email-in-c-sharp-less-secure-app-access-not-longer-available
 
-#history
-# historyParser = reqparse.RequestParser()
-# historyParser.add_argument('jenis_kendaraan', type=str, help='Jenis Kendaraan', location='json', required=True)
-# historyParser.add_argument('tanggal', type=str, help='Tanggal', location='json', required=True)
-# historyParser.add_argument('waktu', type=str, help='Waktu', location='json', required=True)
+authParser = reqparse.RequestParser()
+authParser.add_argument('Authorization', type=str, help='Authorization', location='headers', required=True)
+@api.route('/user')
+class DetailUser(Resource):
+       @api.expect(authParser)
+       def get(self):
+        args = authParser.parse_args()
+        bearerAuth  = args['Authorization']
+        try:
+            jwtToken    = bearerAuth[7:]
+            token = decodetoken(jwtToken)
+            user =  db.session.execute(db.select(Users).filter_by(email=token['user_email'])).first()
+            user = user[0]
+            data = {
+                'firstname' : user.firstname,
+                'lastname' : user.lastname,
+                'email' : user.email
+            }
+        except:
+            return {
+                'message' : 'Token Tidak valid,Silahkan Login Terlebih Dahulu!'
+            }, 401
 
-# @app.route('/history')
-# def get_history():
-#     args = historyParser.parse_args()
-#     jenis_kendaraan = args['jenis_kendaraan']
-#     tanggal = args['tanggal']
-#     waktu = args['waktu']
+        return data, 200
 
-#     # Lanjutkan dengan logika lainnya untuk mendapatkan data history
-#     history_list = History.query.all()
-#     history_data = []
-#     for history in history_list:
-#         history_data.append({
-#             'nama': history.nama,
-#             'jenis_kendaraan': history.jenis_kendaraan,
-#             'tanggal': history.tanggal.strftime('%Y-%m-%d'),
-#             'waktu': history.waktu.strftime('%H:%M:%S')
-#         })
-#     return jsonify(history_data)
+#histori parser
+historiParser = reqparse.RequestParser()
+historiParser.add_argument('nama', type=str, help='Nama', location='json', required=True)
+historiParser.add_argument('jenis_kendaraan', type=str, help='Jenis Kendaraan', location='json', required=True)
+historiParser.add_argument('tanggal', type=str, help='Tanggal', location='json', required=True)
+
+#membuat histori baru
+@api.route('/add-histori')
+class AddHistoriResource(Resource):
+    @api.expect(authParser, historiParser)
+    def post(self):
+        args = authParser.parse_args()
+        bearerAuth = args['Authorization']
+
+        jwtToken = bearerAuth[7:]
+        token = decodetoken(jwtToken)
+        user_id = token['user_id']
+
+        # Parse the request data and save it to the database
+        data = api.payload
+        histori = Histori(
+            nama=data['nama'],
+            jenis_kendaraan=data['jenis_kendaraan'],
+            tanggal=datetime.strptime(data['tanggal'], '%Y-%m-%d').date(),
+            user_id=user_id,
+        )
+        db.session.add(histori)
+        db.session.commit()
+
+        return {'message': 'Histori berhasil ditambahkan'}, 201
+
+
+#menampilkan data histori bedasarkan id
+@api.route('/read-histori')
+class ReadHistori(Resource):
+    @api.expect(authParser)
+    def get(self):
+        # Mendapatkan user_id dari token yang terverifikasi
+        # user_id = get_jwt_identity()
+        args = authParser.parse_args()
+        bearerAuth = args['Authorization']
+
+        jwtToken = bearerAuth[7:]
+        token = decodetoken(jwtToken)
+        user_id = token['user_id']
+
+        # Mengambil data histori berdasarkan user_id
+        histori = Histori.query.filter_by(user_id=user_id).all()
+        if not histori:
+            return {'message': 'Histori tidak ditemukan'}, 404
+
+        histori_data = []
+        for h in histori:
+            histori_data.append({
+                'id': h.id,
+                'nama': h.nama,
+                'jenis_kendaraan': h.jenis_kendaraan,
+                'tanggal': h.tanggal.strftime('%Y-%m-%d')
+            })
+
+        return histori_data, 200
+
 
 parserVideo = reqparse.RequestParser()
 # parserVideo.add_argument('Authorization', type=str, location='headers', required=True)
@@ -241,140 +297,6 @@ historiParser.add_argument('nama', type=str, help='Nama', location='json', requi
 historiParser.add_argument('nama_gerakan', type=str, help='Nama Gerakan', location='json', required=True)
 historiParser.add_argument('tanggal', type=str, help='Tanggal', location='json', required=True)
 
-#membuat histori baru
-# @api.route('/add-histori')
-# class AddHistoriResource(Resource):
-#     @api.expect(authParser, historiParser)
-#     def post(self):
-#         args = authParser.parse_args()
-#         bearerAuth = args['Authorization']
-
-#         jwtToken = bearerAuth[7:]
-#         token = decodetoken(jwtToken)
-#         user_id = token['user_id']
-
-#         args = historiParser.parse_args()
-#         nama = args['nama']
-#         nama_gerakan = args['nama_gerakan']
-#         tanggal = datetime.strptime(args['tanggal'], '%Y-%m-%d').date()
-
-#         histori = Histori(user_id=user_id, nama=nama, nama_gerakan=nama_gerakan, tanggal=tanggal)
-#         db.session.add(histori)
-#         db.session.commit()
-
-#         return {'message': 'Histori berhasil ditambahkan'}, 201
-
-# #menampilkan data histori bedasarkan id
-# @api.route('/read-histori')
-# class ReadHistori(Resource):
-#     @api.expect(authParser)
-#     def get(self):
-#         # Mendapatkan user_id dari token yang terverifikasi
-#         # user_id = get_jwt_identity()
-#         args = authParser.parse_args()
-#         bearerAuth = args['Authorization']
-
-#         jwtToken = bearerAuth[7:]
-#         token = decodetoken(jwtToken)
-#         user_id = token['user_id']
-
-#         # Mengambil data histori berdasarkan user_id
-#         histori = Histori.query.filter_by(user_id=user_id).all()
-#         if not histori:
-#             return {'message': 'Histori tidak ditemukan'}, 404
-
-#         histori_data = []
-#         for h in histori:
-#             histori_data.append({
-#                 'id': h.id,
-#                 'nama': h.nama,
-#                 'nama_gerakan': h.nama_gerakan,
-#                 'tanggal': h.tanggal.strftime('%Y-%m-%d')
-#             })
-
-#         return histori_data, 200
-
-# model = YOLO("D:/bigproject/awas-api-main/models/best.pt")
-# model = torch.load("D:/bigproject/awas-api-main/models/best.pt")
-# threshold = 0.5
-# class_name_dict = {0: 'sepeda-motor', 1: 'sepeda'}
-
-# @app.route('/realtime')
-# def video_realtime():
-#     cap = cv2.VideoCapture(0)  # use default camera
-#     if not cap.isOpened():
-#         raise IOError("Cannot open webcam")
-
-#     cv2.namedWindow('deteksi kendaraan', cv2.WINDOW_NORMAL)
-
-
-#     while True:
-#         ret, frame = cap.read()
-#         if not ret:
-#             break
-
-#         H, W, _ = frame.shape
-
-#         results = model(frame)[0]
-
-#         for result in results.boxes.data.tolist():
-#             x1, y1, x2, y2, score, class_id = result
-
-#             if score > threshold:
-#                 if class_id == 0:
-#                     class_label = 'sepeda-motor'
-#                     cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 4)
-#                     cv2.putText(frame, class_label.upper(), (int(x1), int(y1 - 10)),
-#                                 cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 255), 3, cv2.LINE_AA)
-#                 else:
-#                     class_label = 'sepeda'
-#                     cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 4)
-#                     cv2.putText(frame, class_label.upper(), (int(x1), int(y1 - 10)),
-#                                 cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 255, 0), 3, cv2.LINE_AA)
-
-#         # Add timestamp
-#         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-#         cv2.putText(frame, timestamp, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-        
-#         cv2.imshow('Real-time Detection', frame)
-
-#         if cv2.waitKey(1) & 0xFF == ord('q'):
-#             break
-
-#     cap.release()
-#     cv2.destroyAllWindows()
-# @app.route('/realtime')
-# def object_detection():
-#     video_capture = cv2.VideoCapture(0)
-
-#     results = []
-
-#     while True:
-#         ret, frame = video_capture.read()
-
-#         # Preprocess the frame
-#         # resized_frame = cv2.resize(frame, (input_details[0]['shape'][2], input_details[0]['shape'][1]))
-#         # input_data = np.expand_dims(resized_frame.astype(np.float32), axis=0)
-#         prediction = model.predict(source=frame, show=True, save=True, conf=0.5) #WebCamera
-#         print("Bounding Box :", prediction[0].boxes.xyxy)
-#         print("Classes :", prediction[0].boxes.cls)
-
-#         # Convert the frame to JPEG format
-#         ret, buffer = cv2.imencode('.jpg', frame)
-#         frame = buffer.tobytes()
-
-#         yield (b'--frame\r\n'
-#                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
-#         if cv2.waitKey(1) & 0xFF == ord('q'):
-#             break
-
-#     video_capture.release()
-#     cv2.destroyAllWindows()
-   
-    
-#     return results
 
 logParser = reqparse.RequestParser()
 logParser.add_argument('email', type=str, help='Email', location='json', required=True)
@@ -430,30 +352,7 @@ def decodetoken(jwtToken):
             )
     return decode_result
 
-authParser = reqparse.RequestParser()
-authParser.add_argument('Authorization', type=str, help='Authorization', location='headers', required=True)
-@api.route('/user')
-class DetailUser(Resource):
-       @api.expect(authParser)
-       def get(self):
-        args = authParser.parse_args()
-        bearerAuth  = args['Authorization']
-        try:
-            jwtToken    = bearerAuth[7:]
-            token = decodetoken(jwtToken)
-            user =  db.session.execute(db.select(Users).filter_by(email=token['user_email'])).first()
-            user = user[0]
-            data = {
-                'firstname' : user.firstname,
-                'lastname' : user.lastname,
-                'email' : user.email
-            }
-        except:
-            return {
-                'message' : 'Token Tidak valid,Silahkan Login Terlebih Dahulu!'
-            }, 401
 
-        return data, 200
 
 editParser = reqparse.RequestParser()
 editParser.add_argument('firstname', type=str, help='Firstname', location='json', required=True)
@@ -488,22 +387,7 @@ verifyParser.add_argument(
     'otp', type=str, help='firstname', location='json', required=True)
 
 
-# @api.route('/verify')
-# class Verify(Resource):
-#     @api.expect(verifyParser)
-#     def post(self):
-#         args = verifyParser.parse_args()
-#         otp = args['otp']
-#         try:
-#             user = Users.verify_token(otp)
-#             if user is None:
-#                 return {'message' : 'Verifikasi gagal'}, 401
-#             user.is_verified = True
-#             db.session.commit()
-#             return {'message' : 'Akun sudah terverifikasi'}, 200
-#         except Exception as e:
-#             print(e)
-#             return {'message' : 'Terjadi error'}, 200
+
 
 #editpasswordParser
 editPasswordParser =  reqparse.RequestParser()
