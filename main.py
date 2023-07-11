@@ -41,8 +41,8 @@ app = Flask(__name__, template_folder='Templates')
 api = Api(app)
 CORS(app)
 port = int(os.environ.get("RAILWAY_PORT", 5000))
-app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:@127.0.0.1:3306/kendaraan"
-# app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:qBEtpDcwnoplHMkgZMbv@containers-us-west-46.railway.app:7986/railway"
+# app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:@127.0.0.1:3306/kendaraan"
+app.config["SQLALCHEMY_DATABASE_URI"] = "mysql://root:pBXnUE9KTMeiM5TGRp7q@containers-us-west-166.railway.app:8066/railway"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'whateveryouwant'
 # mail env config
